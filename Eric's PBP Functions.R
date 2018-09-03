@@ -3311,20 +3311,20 @@ fun.draw_rink <- function() {
 
 ds.date_compile <- function(season_start, startdate = paste0(season_start,"-09-01"), enddate = paste0(season_start+1, "-07-31"), dir.output = '~/Data Sets/Hockey/Season_Sets') {
   
-  #Automatically calculates the seasonID and start/end dates to scrape
+  #Create the seasonID for dates selected
   seasonID <- paste0(season_start, season_start+1) #Starting year plus ending year
   
-  #Create a folder for the output and set it as working dir
+  #Create a folder for the output
   dir.create(paste(dir.output, seasonID, sep = "/"))
   dir.create(paste(dir.output, seasonID, "PBP", sep = "/"))
   dir.create(paste(dir.output, seasonID, "Rosters", sep = "/"))
   
-  #Scrape all of the gameIDs for the selected season
+  #Scrape all of the gameIDs for the specified dates
   df.game_list <- data.frame(ds.scrape_schedule(start = startdate, 
                                                 end = enddate))
   
   df.game_numbers <- 
-    filter(df.game_list, session == "R" | session == "P") %>%
+    filter(df.game_list, session == "R" | session == "P") %>% #Grab only regular and postseason
     mutate(gameID = as.integer(substr(game_id, nchar(game_id)-4, nchar(game_id))),
            scrape_order = ceiling(row_number()/250)) %>%
     select(gameID, scrape_order) %>%
@@ -3352,22 +3352,38 @@ ds.date_compile <- function(season_start, startdate = paste0(season_start,"-09-0
   }
 }
 
-ds.enhancedPBP <- function(rawdata, v.corsi_events = v.corsi_events) {
+readfiles <- function(dir, sep = "|") {
+  #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
+  filelist <- list.files(dir, 
+                         all.files = FALSE, 
+                         full.names = TRUE)
   
+  df.combined_files <- do.call("rbind",lapply(filelist, read.delim, sep = sep, header = TRUE))
+  
+  return(df.combined_files)
+  
+}
+
+ds.enhancedPBP <- function(rawdata) {
+  #DESCRIPTION - 
   #Add Dummy Column for Home Team
-  df.raw_gamedata$is_home <- ifelse(df.raw_gamedata$event_team == as.character(df.raw_gamedata$home_team),1,0)
+  rawdata$is_home <- ifelse(rawdata$event_team == as.character(rawdata$home_team),1,0)
+  
+  #Assign Shapes for Corsi Shot Types
+  v.corsi_events <- c(16, 17, 1, 0)
+  names(v.corsi_events) <- c("SHOT", "GOAL", "MISS", "BLOCK")
   
   #Add Columns for Game Minutes
-  df.raw_gamedata$game_mins <- df.raw_gamedata$game_seconds/60
+  rawdata$game_mins <- rawdata$game_seconds/60
   
   #Add side_coords to move all game events to one side of the ice, home on left & away on right
-  df.raw_gamedata$side_coordsx <- ifelse(df.raw_gamedata$is_home == 1, -abs(df.raw_gamedata$coords_x), abs(df.raw_gamedata$coords_x))
-  df.raw_gamedata$side_coordsy <- ifelse((df.raw_gamedata$is_home == 1 & df.raw_gamedata$coords_x > 0) | (df.raw_gamedata$is_home == 0 & df.raw_gamedata$coords_x < 0), -df.raw_gamedata$coords_y, df.raw_gamedata$coords_y)
+  rawdata$side_coordsx <- ifelse(rawdata$is_home == 1, -abs(rawdata$coords_x), abs(rawdata$coords_x))
+  rawdata$side_coordsy <- ifelse((rawdata$is_home == 1 & rawdata$coords_x > 0) | (rawdata$is_home == 0 & rawdata$coords_x < 0), -rawdata$coords_y, rawdata$coords_y)
   
   #Add Dummy Column for Corsi
-  df.raw_gamedata$is_corsi <- ifelse(df.raw_gamedata$event_type %in% names(v.corsi_events), 1, 0)
+  rawdata$is_corsi <- ifelse(rawdata$event_type %in% names(v.corsi_events), 1, 0)
   
-  return(df.raw_gamedata)
+  return(rawdata)
   
 }
 
@@ -3380,6 +3396,42 @@ fun.corsi_table <- function(rawdata) {
     mutate(team_corsi = row_number())
   
   return(df.corsi_table)
+}
+
+viz.corsi_graph <- function(rawdata, team_colors, corsi_table) {
+  #DESCRIPTION - use fun.corsi_table to create a vizualization of corsi during a specified game
+  
+  #Grab Primary Colors
+  df.primary_colors <- as.character(team_colors$Primary)
+  names(df.primary_colors) <- row.names(team_colors)
+    
+  #Utilize enhancedPBP and corsi_table functions to add more columns
+  df.enhanced_pbp <- ds.enhancedPBP(rawdata)
+  df.corsi_table <- fun.corsi_table(df.enhanced_pbp)
+  
+  #Set Home and Away Teams
+  home_team <- df.corsi_table[[1,"home_team"]]
+  away_team <- df.corsi_table[[1,"away_team"]]
+  
+  viz.corsi_graph <- 
+    ggplot(data = df.corsi_table, mapping = aes(x = game_mins, y = team_corsi)) +
+    ggtitle(paste("Team Corsi by Minute\n",home_team, " ", max(df.corsi_table$home_score), " vs. ", away_team, " ", max(df.corsi_table$away_score), sep = "")) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    labs(x = "Game Minute", y = "Corsi", shape = "Shot Type", color = "Team") +
+    geom_line(mapping = aes(color = event_team)) +
+    geom_point(mapping = aes(shape = event_type, color = event_team), size = 3) +
+    geom_text(data = subset(df.corsi_table, event_type == "GOAL"), vjust = -1, hjust = 1, nudge_x = 0, mapping = aes(color = event_team, label = event_player_1)) +
+    
+    #IN DEVELOPMENT - Need to adjust function to end PP after a PP goal and remove Offsetting Penalties
+    #geom_rect(data = df.penalties, mapping = aes(xmin = game_mins, xmax = pen_end, ymin = -Inf, ymax = Inf, color = team_adv), alpha = .05) +
+    
+    geom_vline(mapping = aes(xintercept = 20), alpha = .5, linetype = "longdash") + 
+    geom_vline(mapping = aes(xintercept = 40), alpha = .5, linetype = "longdash") +
+    scale_color_manual(values = df.primary_colors) +
+    scale_shape_manual(values = corsi_table) +
+    scale_fill_manual(values = df.primary_colors)
+  
+  return(viz.corsi_graph)
 }
 
 fun.team_summary <- function(rawdata) {
@@ -3396,6 +3448,43 @@ fun.team_summary <- function(rawdata) {
               Shots = sum(event_type %in% c("SHOT","GOAL")), 
               Faceoffs = sum(event_type == "FAC")) %>%
     gather(Event, Value, -event_team)
+  
+}
+
+viz.team_summary <- function(rawdata, team_colors, corsi_table) {
+  #DESCRIPTION - Use fun.team_summary to create a vizualization of team game performance
+  
+  #Set Home and Away Teams
+  home_team <- rawdata[[1,"home_team"]]
+  away_team <- rawdata[[1,"away_team"]]
+  
+  #Grab Primary Colors
+  df.primary_colors <- as.character(team_colors$Primary)
+  names(df.primary_colors) <- row.names(team_colors)
+  
+  df.team_summary <- fun.team_summary(rawdata)
+  
+  chart.team_summary <- 
+    ggplot(data = df.team_summary, mapping = aes(x = factor(Event, levels = c("Blocks", "Hits", "Faceoffs", "Corsi", "Shots", "Goals")), 
+                                                 fill = factor(event_team, levels = c(as.character(away_team),as.character(home_team))), 
+                                                 y = Value)) +
+    
+    ggtitle(paste("Team Summary")) +
+    labs(fill = "Team") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          panel.grid = element_blank(), 
+          panel.background = element_blank(), 
+          axis.ticks = element_blank(), 
+          axis.text.y = element_text(size = 11, color = "black"), 
+          axis.line.x = element_blank(), 
+          axis.text.x = element_blank(), 
+          axis.title = element_blank()) +
+    geom_col(position = "fill") + 
+    geom_text(data = subset(df.team_summary, event_team == as.character(home_team)), position = position_fill(vjust = -0.025), mapping = aes(label = Value)) + 
+    geom_text(data = subset(df.team_summary, event_team == as.character(away_team)), position = position_fill(vjust = 1.025), mapping = aes(label = Value)) + 
+    geom_hline(yintercept = 0.5, linetype = "longdash", alpha = .75) +
+    coord_flip() +
+    scale_fill_manual(values = df.primary_colors)
   
 }
 
@@ -3437,45 +3526,63 @@ fun.skater_stats <- function(dataset, team) {
 }
 
 SkaterSummary <- function(dataset) {
-
+  #DESCRIPTION - Utilize fun.skater_stats function to create stats summary for all player in PBP frame
+  
   #Run Skater_Stats function for all 6 skater slots on PBP file
   for (runcount in c(1:6)) {
-    print(runcount)
     assign(paste("home_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = home_goalie, player = paste("home_on_", runcount, sep = "")), "home"))
     assign(paste("away_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = away_goalie, player = paste("away_on_", runcount, sep = "")), "away"))
   }
   
-#Aggregate function output files to create full list of skater stats
-summary.home_skaters <- bind_rows(home_player_summary1, 
-                                  home_player_summary2, 
-                                  home_player_summary3, 
-                                  home_player_summary4, 
-                                  home_player_summary5, 
-                                  home_player_summary6) %>% 
-  group_by(player) %>% 
-  summarise_all(funs(sum)) %>% 
-  mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
-
-summary.away_skaters <- bind_rows(away_player_summary1, 
-                                  away_player_summary2, 
-                                  away_player_summary3, 
-                                  away_player_summary4, 
-                                  away_player_summary5, 
-                                  away_player_summary6) %>% 
-  group_by(player) %>% 
-  summarise_all(funs(sum)) %>% 
-  mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+  #Aggregate function output files to create full list of skater stats
+  summary.home_skaters <- bind_rows(home_player_summary1, 
+                                    home_player_summary2, 
+                                    home_player_summary3, 
+                                    home_player_summary4, 
+                                    home_player_summary5, 
+                                    home_player_summary6) %>% 
+    group_by(player) %>% 
+    summarise_all(funs(sum)) %>% 
+    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+  
+  summary.away_skaters <- bind_rows(away_player_summary1, 
+                                    away_player_summary2, 
+                                    away_player_summary3, 
+                                    away_player_summary4, 
+                                    away_player_summary5, 
+                                    away_player_summary6) %>% 
+    group_by(player) %>% 
+    summarise_all(funs(sum)) %>% 
+    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+  
+  return(list(summary.home_skaters, summary.away_skaters))
 }
 
-readfiles <- function(dir) {
+viz.corsi_positions <- function(rawdata, team_colors, corsi_table) {
 
-  filelist <- list.files(dir, 
-                         all.files = FALSE, 
-                         full.names = TRUE)
-
-  df.combined_files <- do.call("rbind",lapply(filelist, read.delim, sep = "|", header = TRUE))
+  #Grab Primary Colors
+  df.primary_colors <- as.character(team_colors$Primary)
+  names(df.primary_colors) <- row.names(team_colors)
   
-  return(df.combined_files)
+  #Utilize enhancedPBP and corsi_table functions to add more columns
+  df.enhanced_pbp <- ds.enhancedPBP(rawdata)
+  df.corsi_table <- fun.corsi_table(df.enhanced_pbp)
+  
+  #Draw a blank rink and fix coordinates
+  rink <- fun.draw_rink() + coord_fixed()
+  
+  #Add Corsi Points
+  chart.corsi_positions <- 
+    rink +
+    labs(color = "Team", shape = "Shot Type") + 
+    geom_point(data = filter(df.corsi_table, !is.na(side_coordsx) & !is.na(side_coordsy)), 
+               mapping = aes(x = side_coordsx, 
+                             y = side_coordsy,
+                             color = event_team,
+                             shape = event_type), 
+               size = 3) +
+    scale_color_manual(values = df.primary_colors) +
+    scale_shape_manual(values = corsi_table)
   
 }
 
