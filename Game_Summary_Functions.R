@@ -3309,59 +3309,48 @@ fun.draw_rink <- function() {
 ##This code written by Eric Fastner                                        #####
 ################################################################################
 
-ds.date_compile <- function(season_start, startdate = paste0(season_start,"-09-01"), enddate = paste0(season_start+1, "-07-31"), dir.output = '~/Data Sets/Hockey/Season_Sets') {
+ds.date_compile <- function(season_start,
+                            game_type = c("PR", "R", "P"),
+                            startdate = paste0(season_start,"-09-01"), 
+                            enddate = paste0(season_start+1, "-07-31"), 
+                            dir.output = '~/Data Sets/Hockey/Season_Sets') {
   
   #Create the seasonID for dates selected
   seasonID <- paste0(season_start, season_start+1) #Starting year plus ending year
+  
+  df.game_list <- character(0)
+  
+  #Scrape all of the gameIDs for the specified dates
+  df.game_list <- data.frame(ds.scrape_schedule(start = startdate, 
+                                                end = enddate))
+  
+  #If there were no games, return NA
+  if (length(df.game_list) == 0) {
+    return(NA)
+  }
   
   #Create a folder for the output
   dir.create(paste(dir.output, seasonID, sep = "/"))
   dir.create(paste(dir.output, seasonID, "PBP", sep = "/"))
   dir.create(paste(dir.output, seasonID, "Rosters", sep = "/"))
   
-  #Scrape all of the gameIDs for the specified dates
-  df.game_list <- data.frame(ds.scrape_schedule(start = startdate, 
-                                                end = enddate))
-  
   df.game_numbers <- 
-    filter(df.game_list, session == "R" | session == "P") %>% #Grab only regular and postseason
-    mutate(gameID = as.integer(substr(game_id, nchar(game_id)-4, nchar(game_id))),
-           scrape_order = ceiling(row_number()/250)) %>%
-    select(gameID, scrape_order) %>%
+    filter(df.game_list, session %in% game_type) %>% #Grab only regular and postseason
+    mutate(gameID = as.integer(substr(game_id, nchar(game_id)-4, nchar(game_id)))) %>%
+    select(gameID) %>%
     arrange(gameID)
   
-  for (scrape in c(1:max(df.game_numbers$scrape_order))) {
+  #Cycle through each game and saves data
+  for (game in df.game_numbers$gameID) {
+    list.game_items <- ds.compile_games(games = game, 
+                                        season = seasonID)
     
-    scrape_group <- filter(df.game_numbers, scrape_order == scrape)
+    df.pbp <- list.game_items[[1]]
+    df.roster <- list.game_items[[2]]
     
-    #Cycle through each game and saves data
-    for (game in scrape_group$gameID) {
-      list.game_items <- ds.compile_games(games = game, 
-                                          season = seasonID)
-      
-      df.pbp <- list.game_items[[1]]
-      df.roster <- list.game_items[[2]]
-      
-      write_delim(df.pbp, paste(dir.output, seasonID, "PBP", game, sep = "/"), delim = "|")
-      write_delim(df.roster, paste(dir.output, seasonID, "Rosters", game, sep = "/"), delim = "|")  
-    }
-    
-    cat("Pause Scrape for 60 Seconds....\n")
-    
-    Sys.sleep(60)
+    write_delim(df.pbp, paste(dir.output, seasonID, "PBP", game, sep = "/"), delim = "|")
+    write_delim(df.roster, paste(dir.output, seasonID, "Rosters", game, sep = "/"), delim = "|")  
   }
-}
-
-readfiles <- function(dir, sep = "|") {
-  #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
-  filelist <- list.files(dir, 
-                         all.files = FALSE, 
-                         full.names = TRUE)
-  
-  df.combined_files <- do.call("rbind",lapply(filelist, read.delim, sep = sep, header = TRUE))
-  
-  return(df.combined_files)
-  
 }
 
 ds.enhancedPBP <- function(rawdata) {
@@ -3387,6 +3376,36 @@ ds.enhancedPBP <- function(rawdata) {
   
 }
 
+ds.daily_scrape <- function(season, outputdir) {
+  #DESCRIPTION: Scrape the previous day's game data and compile in a master file  
+  seasonID <- paste0(season, season + 1)
+  
+  gamelist <- character(0)
+  gamelist <- ds.scrape_schedule(start = today() - 1, end = today() - 1)
+  
+  if (!length(gamelist) == 0) {
+    ds.date_compile(season, startdate = today() - 1, enddate = today() - 1, dir.output = outputdir)
+    
+    pbpfile <- readfiles(paste(outputdir, seasonID, "PBP",sep = "/"), sep = "|")
+    rosterfile <- readfiles(paste(outputdir, seasonID, "Rosters",sep = "/"), sep = "|")
+    
+    write_delim(pbpfile, paste0(outputdir,"/", seasonID, "_PBP", sep = "/"), delim = "|")
+    write_delim(rosterfile, paste0(outputdir,"/", seasonID, "_Rosters", sep = "/"), delim = "|")
+  }
+}
+
+readfiles <- function(dir, sep = "|") {
+  #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
+  filelist <- list.files(dir, 
+                         all.files = FALSE, 
+                         full.names = TRUE)
+  
+  df.combined_files <- do.call("rbind",lapply(filelist, read.delim, sep = sep, header = TRUE))
+  
+  return(df.combined_files)
+  
+}
+
 fun.corsi_table <- function(rawdata) {
   #DESCRIPTION - Modify raw_data to get corsi data frame
   
@@ -3398,13 +3417,122 @@ fun.corsi_table <- function(rawdata) {
   return(df.corsi_table)
 }
 
-viz.corsi_graph <- function(rawdata, team_colors, corsi_table) {
+fun.team_summary <- function(rawdata) {
+  #DESCRIPTION - Modify raw_data to get team summary data frame  
+  
+  #Create Data for Team Summary Graph
+  team_graphsummary <- rawdata %>% 
+    filter(!is.na(event_team)) %>% 
+    group_by(event_team) %>% 
+    summarise(Goals = sum(event_type == "GOAL"), 
+              Hits = sum(event_type == "HIT"),
+              Blocks = sum(event_type == "BLOCK"),
+              Corsi = sum(event_type %in% names(v.corsi_events)),
+              Shots = sum(event_type %in% c("SHOT","GOAL")), 
+              Faceoffs = sum(event_type == "FAC")) %>%
+    gather(Event, Value, -event_team)
+  
+}
+
+fun.skater_stats <- function(dataset, team_indicator) {
+  #DESCRIPTION - Create Summary of stats for all skaters on each team. Specific to home/away  
+  
+  if(team_indicator == "home") {
+    output <- 
+      subset(dataset, !player %in% goalie) %>% group_by(player, team) %>% 
+      summarise(
+        TOI = sum(event_length)/60,
+        G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
+        A1 = sum(event_type == "GOAL" & event_player_2 == as.character(player) & !is.na(event_player_2)),
+        A2 = sum(event_type == "GOAL" & event_player_3 == as.character(player) & !is.na(event_player_3)),
+        A = A1 + A2,
+        P = G + A1 + A2,
+        P1 = G + A1,
+        FOW = sum(event_type == "FAC" & is_home == 1 & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
+        FOT = sum(event_type == "FAC" & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
+        SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
+        iCF = sum(event_type %in% names(v.corsi_events) & event_player_1 == as.character(player)),
+        HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
+        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
+  } else {
+    output <- 
+      subset(dataset, !player %in% goalie) %>% group_by(player, team) %>% 
+      summarise(
+        TOI = sum(event_length)/60,
+        G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
+        A1 = sum(event_type == "GOAL" & event_player_2 == as.character(player) & !is.na(event_player_2)),
+        A2 = sum(event_type == "GOAL" & event_player_3 == as.character(player) & !is.na(event_player_3)),
+        A = A1 + A2,
+        P = G + A1 + A2,
+        P1 = G + A1,
+        FOW = sum(event_type == "FAC" & is_home == 0 & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
+        FOT = sum(event_type == "FAC" & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
+        SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
+        iCF = sum(event_type %in% names(v.corsi_events) & event_player_1 == as.character(player)),
+        HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
+        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
+    
+  }
+  
+  output$player <-  as.character(output$player)
+  
+  return(output)
+}
+
+SkaterSummary <- function(dataset) {
+  #DESCRIPTION - Utilize fun.skater_stats function to create stats summary for all player in PBP frame
+  
+  if (is.null(dataset$is_home)) {
+    dataset <- ds.enhancedPBP(dataset)
+  }
+  
+  #Run Skater_Stats function for all 6 skater slots on PBP file
+  for (runcount in c(1:6)) {
+    assign(paste("home_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = home_goalie, player = paste("home_on_", runcount, sep = ""), team = home_team), "home"))
+    assign(paste("away_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = away_goalie, player = paste("away_on_", runcount, sep = ""), team = away_team), "away"))
+  }
+  
+  #Aggregate function output files to create full list of skater stats
+  summary.home_skaters <- bind_rows(home_player_summary1, 
+                                    home_player_summary2, 
+                                    home_player_summary3, 
+                                    home_player_summary4, 
+                                    home_player_summary5, 
+                                    home_player_summary6) %>% 
+    group_by(player, team) %>%
+    summarise_all(funs(sum)) %>%
+    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+  
+  summary.away_skaters <- bind_rows(away_player_summary1, 
+                                    away_player_summary2, 
+                                    away_player_summary3, 
+                                    away_player_summary4, 
+                                    away_player_summary5, 
+                                    away_player_summary6) %>% 
+    group_by(player, team) %>%
+    summarise_all(funs(sum)) %>%
+    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+    
+  return(list(summary.home_skaters, summary.away_skaters))
+}
+
+fun.combine_skater_stats <- function(dataset) {
+  skater_list <- SkaterSummary(dataset)
+  
+  output <- skater_list %>% 
+    bind_rows() %>%
+    group_by(player, team) %>%
+    summarise_all(funs(sum)) %>%
+    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+}
+
+viz.corsi_graph <- function(rawdata, team_colors = df.team_colors, corsi_table = v.corsi_events) {
   #DESCRIPTION - use fun.corsi_table to create a vizualization of corsi during a specified game
   
   #Grab Primary Colors
   df.primary_colors <- as.character(team_colors$Primary)
   names(df.primary_colors) <- row.names(team_colors)
-    
+  
   #Utilize enhancedPBP and corsi_table functions to add more columns
   df.enhanced_pbp <- ds.enhancedPBP(rawdata)
   df.corsi_table <- fun.corsi_table(df.enhanced_pbp)
@@ -3432,23 +3560,6 @@ viz.corsi_graph <- function(rawdata, team_colors, corsi_table) {
     scale_fill_manual(values = df.primary_colors)
   
   return(viz.corsi_graph)
-}
-
-fun.team_summary <- function(rawdata) {
-  #DESCRIPTION - Modify raw_data to get team summary data frame  
-  
-  #Create Data for Team Summary Graph
-  team_graphsummary <- rawdata %>% 
-    filter(!is.na(event_team)) %>% 
-    group_by(event_team) %>% 
-    summarise(Goals = sum(event_type == "GOAL"), 
-              Hits = sum(event_type == "HIT"),
-              Blocks = sum(event_type == "BLOCK"),
-              Corsi = sum(event_type %in% names(v.corsi_events)),
-              Shots = sum(event_type %in% c("SHOT","GOAL")), 
-              Faceoffs = sum(event_type == "FAC")) %>%
-    gather(Event, Value, -event_team)
-  
 }
 
 viz.team_summary <- function(rawdata, team_colors, corsi_table) {
@@ -3488,78 +3599,8 @@ viz.team_summary <- function(rawdata, team_colors, corsi_table) {
   
 }
 
-fun.skater_stats <- function(dataset, team) {
-  #DESCRIPTION - Create Summary of stats for all skaters on each team. Specific to home/away  
-  #DEVELOPMENT - Split this dependant on team, will make CF/CA/PP TOI/Etc easier to calc
-  if(team == "home") {
-    output <- 
-      subset(dataset, !player %in% goalie) %>% group_by(player) %>% 
-      summarise(
-        TOI = sum(event_length)/60,
-        G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
-        A1 = sum(event_type == "GOAL" & event_player_2 == as.character(player) & !is.na(event_player_2)),
-        A2 = sum(event_type == "GOAL" & event_player_3 == as.character(player) & !is.na(event_player_3)),
-        P = G + A1 + A2,
-        FOW = sum(event_type == "FAC" & is_home == 1 & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
-        FOT = sum(event_type == "FAC" & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
-        SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
-        HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
-        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
-  } else {
-    output <- 
-      subset(dataset, !player %in% goalie) %>% group_by(player) %>% 
-      summarise(
-        TOI = sum(event_length)/60,
-        G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
-        A1 = sum(event_type == "GOAL" & event_player_2 == as.character(player) & !is.na(event_player_2)),
-        A2 = sum(event_type == "GOAL" & event_player_3 == as.character(player) & !is.na(event_player_3)),
-        P = G + A1 + A2,
-        FOW = sum(event_type == "FAC" & is_home == 0 & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
-        FOT = sum(event_type == "FAC" & (event_player_1 == as.character(player) | event_player_2 == as.character(player))),
-        SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
-        HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
-        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
-    
-  }
-  
-  return(output)
-}
-
-SkaterSummary <- function(dataset) {
-  #DESCRIPTION - Utilize fun.skater_stats function to create stats summary for all player in PBP frame
-  
-  #Run Skater_Stats function for all 6 skater slots on PBP file
-  for (runcount in c(1:6)) {
-    assign(paste("home_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = home_goalie, player = paste("home_on_", runcount, sep = "")), "home"))
-    assign(paste("away_player_summary", runcount, sep = ""), fun.skater_stats(rename(dataset, goalie = away_goalie, player = paste("away_on_", runcount, sep = "")), "away"))
-  }
-  
-  #Aggregate function output files to create full list of skater stats
-  summary.home_skaters <- bind_rows(home_player_summary1, 
-                                    home_player_summary2, 
-                                    home_player_summary3, 
-                                    home_player_summary4, 
-                                    home_player_summary5, 
-                                    home_player_summary6) %>% 
-    group_by(player) %>% 
-    summarise_all(funs(sum)) %>% 
-    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
-  
-  summary.away_skaters <- bind_rows(away_player_summary1, 
-                                    away_player_summary2, 
-                                    away_player_summary3, 
-                                    away_player_summary4, 
-                                    away_player_summary5, 
-                                    away_player_summary6) %>% 
-    group_by(player) %>% 
-    summarise_all(funs(sum)) %>% 
-    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
-  
-  return(list(summary.home_skaters, summary.away_skaters))
-}
-
 viz.corsi_positions <- function(rawdata, team_colors, corsi_table) {
-
+  
   #Grab Primary Colors
   df.primary_colors <- as.character(team_colors$Primary)
   names(df.primary_colors) <- row.names(team_colors)
@@ -3586,6 +3627,25 @@ viz.corsi_positions <- function(rawdata, team_colors, corsi_table) {
   
 }
 
+viz.player_corsi_efficiency <- function(rawdata) {
+  require(ggplot2)
+  require(ggrepel)
+  
+  skater_summary <- bind_rows(SkaterSummary(rawdata))
+  skater_summary$player <- gsub("\\.", " ", skater_summary$player)
+  
+  df.primary_colors <- as.character(df.team_colors$Primary)
+  names(df.primary_colors) <- row.names(df.team_colors)
+  
+  
+  ggplot(data = skater_summary, mapping = aes(x = skater_summary$TOI, y = skater_summary$iCF)) +
+    geom_point(mapping = aes(color = skater_summary$team)) +
+    labs(x = "Time on Ice", y = "Individual Corsi", color = "Team") +
+    geom_text_repel(mapping = aes(label = skater_summary$player)) +
+    geom_vline(xintercept = mean(skater_summary$TOI), linetype = "longdash") +
+    geom_hline(yintercept = mean(skater_summary$iCF), linetype = "longdash") +
+    scale_color_manual(values = df.primary_colors)
+}
 #OBJECTS===============================================================================
 
 #Assigns Colors for graphing
@@ -3593,7 +3653,7 @@ df.team_colors <- data.frame(row.names = c("ANA", "ARI", "BOS", "BUF", "CGY",
                                            "CAR", "CHI", "COL", "CBJ", "DAL", 
                                            "DET", "EDM", "FLA", "LAK", "MIN", 
                                            "MTL", "NSH", "NJD", "NYI", "NYR", 
-                                           "OTT", "PHI", "PIT", "STL", "SJS", 
+                                           "OTT", "PHI", "PIT", "STL", "S.J", 
                                            "TBL", "TOR", "VAN", "VGK", "WSH", "WPG"), 
                              Primary = c("#FC4C02", "#8C2633", "#FFB81C", "#041E42", "#C8102E",
                                          "#CC0000", "#C8102E", "#6F263D", "#041E42", "#006341",
