@@ -29,10 +29,9 @@ fun.game_endings <- function(data_set) {
   #Attempt to grab the final score of each game based on the period that it ends in
   game_endings <- 
     data_set %>%
-    filter((data_set$event_type == "GEND" & data_set$game_period == 3) | 
+    filter((data_set$event_type == "PEND" & data_set$game_period == 3 & data_set$home_score != data_set$away_score) | 
              (data_set$event_type == "GOAL" & data_set$game_period == 4) |
-             (data_set$event_type == "GEND" & data_set$game_period == 5 )) %>%
-    mutate(end_state = ifelse(game_period == 3, "Reg", "OT"))
+             (data_set$event_type == "SOC" & data_set$game_period == 5 ))
   
   #Identifies if a game ended in OT or a shootout and calculates the final scores
   for (i in 1:nrow(game_endings)) {
@@ -72,6 +71,15 @@ fun.OT_winners <- function(data_set, gameID) {
   return(c(home_score, away_score))
 }
 
+fun.results_by_team <- function(game_results) {
+  home_list <- rename(select(game_results, c(1:5, 7:14)), team = home_team) %>% mutate(side = "home")
+  away_list <- rename(select(game_results, c(1:4, 6:14)), team = away_team) %>% mutate(side = "away")
+  
+  team_list <- rbind(home_list, away_list)
+  
+  return(team_list)
+}
+
 fun.game_result_summary <- function(raw_data) {
   #DESCRIPTION - take raw PbP data and summarize each game by score, games played, points earned, and cumulative points
   #ARGUMENTS - expects raw PbP data frame
@@ -98,7 +106,7 @@ fun.game_result_summary <- function(raw_data) {
       away_point_total = NA)
   
   #Loop through each line to apply game and point count functions
-  for (i in 1:nrow(reg_season_game_count)) {
+  for (i in 1:nrow(game_results)) {
     game_results[i, "home_game_num"] <- 
       fun.game_count(data_set = game_results, 
                      gdate = game_results[i, "game_date"], 
@@ -119,6 +127,9 @@ fun.game_result_summary <- function(raw_data) {
                      gdate = game_results[i, "game_date"], 
                      team = as.character(game_results[i, "away_team"])) 
   }
+  
+  #Removes any dublicate lines that may show up, most frequently in games that have two different game ending times for some reason
+  game_results <- unique(game_results)
   
   return(game_results)
 }
