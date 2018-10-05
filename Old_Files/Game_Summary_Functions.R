@@ -3453,7 +3453,11 @@ fun.skater_stats <- function(dataset, team_indicator) {
         SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
         iCF = sum(event_type %in% names(v.corsi_events) & event_player_1 == as.character(player)),
         HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
-        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
+        BLK = sum(event_type == "BLOCK" & event_player_1 == as.character(player)),
+        PEND = sum(event_type == "PENL" & event_player_2 == as.character(player)),
+        PENT = sum(event_type == "PENL" & event_player_1 == as.character(player)),
+        CF = sum(event_type %in% names(v.corsi_events) & is_home == 1),
+        CA = sum(event_type %in% names(v.corsi_events) & is_home != 1))
   } else {
     output <- 
       subset(dataset, !player %in% goalie) %>% group_by(player, team) %>% 
@@ -3470,7 +3474,11 @@ fun.skater_stats <- function(dataset, team_indicator) {
         SOG = sum(event_type %in% c("SHOT", "GOAL") & event_player_1 == as.character(player)),
         iCF = sum(event_type %in% names(v.corsi_events) & event_player_1 == as.character(player)),
         HITS = sum(event_type == "HIT" & event_player_1 == as.character(player)),
-        Blk = sum(event_type == "BLOCK" & event_player_1 == as.character(player)))
+        BLK = sum(event_type == "BLOCK" & event_player_1 == as.character(player)),
+        PEND = sum(event_type == "PENL" & event_player_2 == as.character(player)),
+        PENT = sum(event_type == "PENL" & event_player_1 == as.character(player)),
+        CF = sum(event_type %in% names(v.corsi_events) & is_home != 1),
+        CA = sum(event_type %in% names(v.corsi_events) & is_home == 1))
     
   }
   
@@ -3479,7 +3487,7 @@ fun.skater_stats <- function(dataset, team_indicator) {
   return(output)
 }
 
-SkaterSummary <- function(dataset) {
+fun.skater_summary <- function(dataset) {
   #DESCRIPTION - Utilize fun.skater_stats function to create stats summary for all player in PBP frame
   
   if (is.null(dataset$is_home)) {
@@ -3517,13 +3525,15 @@ SkaterSummary <- function(dataset) {
 }
 
 fun.combine_skater_stats <- function(dataset) {
-  skater_list <- SkaterSummary(dataset)
+  skater_list <- fun.skater_summary(dataset)
   
   output <- skater_list %>% 
     bind_rows() %>%
     group_by(player, team) %>%
     summarise_all(funs(sum)) %>%
     mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+  
+  return(output)
 }
 
 viz.corsi_graph <- function(rawdata, team_colors = df.team_colors, corsi_table = v.corsi_events) {
@@ -3627,16 +3637,14 @@ viz.corsi_positions <- function(rawdata, team_colors, corsi_table) {
   
 }
 
-viz.player_corsi_efficiency <- function(rawdata) {
+viz.player_corsi_efficiency <- function(skater_summary) {
   require(ggplot2)
   require(ggrepel)
   
-  skater_summary <- bind_rows(SkaterSummary(rawdata))
   skater_summary$player <- gsub("\\.", " ", skater_summary$player)
   
   df.primary_colors <- as.character(df.team_colors$Primary)
   names(df.primary_colors) <- row.names(df.team_colors)
-  
   
   ggplot(data = skater_summary, mapping = aes(x = skater_summary$TOI, y = skater_summary$iCF)) +
     geom_point(mapping = aes(color = skater_summary$team)) +
@@ -3646,15 +3654,16 @@ viz.player_corsi_efficiency <- function(rawdata) {
     geom_hline(yintercept = mean(skater_summary$iCF), linetype = "longdash") +
     scale_color_manual(values = df.primary_colors)
 }
+
 #OBJECTS===============================================================================
 
 #Assigns Colors for graphing
 df.team_colors <- data.frame(row.names = c("ANA", "ARI", "BOS", "BUF", "CGY", 
                                            "CAR", "CHI", "COL", "CBJ", "DAL", 
-                                           "DET", "EDM", "FLA", "LAK", "MIN", 
-                                           "MTL", "NSH", "NJD", "NYI", "NYR", 
+                                           "DET", "EDM", "FLA", "L.A", "MIN", 
+                                           "MTL", "NSH", "N.J", "NYI", "NYR", 
                                            "OTT", "PHI", "PIT", "STL", "S.J", 
-                                           "TBL", "TOR", "VAN", "VGK", "WSH", "WPG"), 
+                                           "T.B", "TOR", "VAN", "VGK", "WSH", "WPG"), 
                              Primary = c("#FC4C02", "#8C2633", "#FFB81C", "#041E42", "#C8102E",
                                          "#CC0000", "#C8102E", "#6F263D", "#041E42", "#006341",
                                          "#C8102E", "#041E42", "#041E42", "#000000", "#154734",
@@ -3683,3 +3692,5 @@ df.team_colors <- data.frame(row.names = c("ANA", "ARI", "BOS", "BUF", "CGY",
 #Assign Shapes for Corsi Shot Types
 v.corsi_events <- c(16, 17, 1, 0)
 names(v.corsi_events) <- c("SHOT", "GOAL", "MISS", "BLOCK")
+
+
