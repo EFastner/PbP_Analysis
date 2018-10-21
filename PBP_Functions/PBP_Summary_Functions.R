@@ -1,12 +1,17 @@
-readfiles <- function(dir, sep = "|") {
+readfiles <- function(dir, sep = "|", bind = TRUE) {
   #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
-  filelist <- list.files(dir, 
-                         all.files = FALSE, 
-                         full.names = TRUE)
+  require(readr)
+  require(dplyr)
   
-  df.combined_files <- do.call("rbind",lapply(filelist, read.delim, sep = sep, header = TRUE))
+  df.read_files <- 
+    list.files(dir, all.files = FALSE, full.names = TRUE) %>% 
+    lapply(read_delim, col_names = TRUE, delim = sep)
   
-  return(df.combined_files)
+  if (bind == TRUE) {
+    df.read_files <- bind_rows(df.read_files, .id = FALSE)
+  }
+  
+  return(df.read_files)
   
 }
 
@@ -128,7 +133,10 @@ fun.skater_summary <- function(dataset) {
     mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
   
   for (i in 1:nrow(summary.home_skaters)) {
-    gs_cats <- summary.home_skaters[i,] %>% select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+    gs_cats <- 
+      summary.home_skaters[i,] %>% 
+      select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+    
     summary.home_skaters[i, "GS"] <- fun.gamescore(gs_cats[,2:14])
   }
   
@@ -143,7 +151,10 @@ fun.skater_summary <- function(dataset) {
     mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
   
   for (i in 1:nrow(summary.away_skaters)) {
-    gs_cats <- summary.away_skaters[i,] %>% select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+    gs_cats <- 
+      summary.away_skaters[i,] %>% 
+      select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+    
     summary.away_skaters[i, "GS"] <- fun.gamescore(gs_cats[,2:14])
   }
   
