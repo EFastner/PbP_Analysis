@@ -118,15 +118,13 @@ fun.game_result_summary <- function(raw_data) {
   require(dplyr)
   require(magrittr)
   
-  reg_season <- filter(raw_data, session == "R")
-  
-  end_games <- fun.game_endings(reg_season)
+  end_games <- fun.game_endings(raw_data)
   
   #Filter to game end event of all regular season games, add columns for the number of points earned by each team
   game_results <- 
     end_games %>% 
     arrange(game_date) %>% 
-    select(season, game_date, game_id, game_period, home_team, away_team, home_score, away_score) %>%
+    select(season, session, game_date, game_id, game_period, home_team, away_team, home_score, away_score) %>%
     mutate(
       home_points = ifelse(home_score > away_score, 2, ifelse(game_period == 3, 0, 1)),
       away_points = ifelse(away_score > home_score, 2, ifelse(game_period == 3, 0, 1)),
