@@ -55,8 +55,8 @@ for (i in 1:82) {
   }
   
   #Point of No Return
-  if(final_list[i, "min_playoff"] - 1 <= final_list[i, "team_game"] * 2) {
-    final_list[i, "no_return"] <- max((final_list[i, "min_playoff"] - 1), 0)
+  if(final_list[i, "min_playoff"] - 1 <= final_list[i, "team_game"] * 2 & final_list[i, "min_playoff"] - 1 > 0) {
+    final_list[i, "no_return"] <- (final_list[i, "min_playoff"] - 1)
   } else {
     final_list[i, "no_return"] <- NA
   }
