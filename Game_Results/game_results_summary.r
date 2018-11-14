@@ -120,7 +120,7 @@ fun.game_result_summary <- function(raw_data) {
   
   end_games <- fun.game_endings(raw_data)
   
-  #Filter to game end event of all regular season games, add columns for the number of points earned by each team
+  #Select only columns needed and add columns for the number of points earned by each team, game totals, point totals, etc
   game_results <- 
     end_games %>% 
     arrange(game_date) %>% 
