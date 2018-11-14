@@ -1,0 +1,294 @@
+---
+title: "Lock Line Analysis"
+author: "Eric Fastner"
+date: "November 4, 2018"
+output: html_document
+---
+
+During the 2017-2018 season, I came across a set of [articles](https://theathletic.com/222746/2018/01/26/dellow-point-of-no-return-all-star-edition/) by [Tyler Dellow](https://theathletic.com/187165/2017/12/22/dellow-the-point-of-no-return-viva-las-vegas-edition/) that really piqued my interest. It involved analyzing game-by-game results for all teams from the 05-06 season onwards to identify the minimum number of points that any playoff team had achieved during that time frame, as well as the maximum number of points that any non-playoff team had achieved during the same time frame. The result was 2 lines, the lock line and the point of no return. 
+
+As I've found myself wondering about the implications of this lock line and point of no return compared to various teams from each season, I thought it might be interesting to run a similar analysis myself. I've laid out my initial methodology below. 
+
+##Methodology
+The goal of this project is to create 2 lines: 
+
+**Lock Line:** The minimum number of points that any team has achieved and still made the playoffs after each game (1-82) of the season  
+**Point of no Return:** The maximum number of points that any team has achieved and still missed the playoffs after each game (1-82) of the season
+
+I plan to use raw PBP data to create each of these lines, which means that I will need to take the following steps to create each line: 
+
+1. Summarize the raw PBP results into game results
+2. Summarize results by team, identify the number of points earned by each team based on the results as well as add a value to denote what game of the season it is for each team (1 to 82)
+3. Identify which teams made the playoffs and which teams missed the playoffs for each season
+4. Group the data set by game number, find the minimum point total for all playoff teams and the maximum for all non-playoff teams
+
+##Step 1: Summarize the raw PBP results into game results
+
+First, I'll read in the full 2017-2018 season's enhanced PBP file provided by [Corsica](http://www.fenwicka.com/shiny/pbp_20172018.csv)
+
+```{r read raw data, message=FALSE}
+require(plyr)
+require(dplyr)
+require(readr)
+
+raw_20172018 <- read_csv("~/Data_Sets/Hockey/Enhanced PbP/pbp_20172018.csv")
+
+head(raw_20172018, n = 10)
+
+
+```
+
+Obviously, all that I'm really interested from this file is the final score. Each game has an event_type value of "GEND" to denote the end of a game that should come in handy. Unfortunately, it's not as easy to come by as originally expected: 
+
+```{r GEND, message=FALSE}
+
+(31 * 82)/2
+nrow(filter(raw_20172018, event_type == "GEND" & session == "R"))
+
+```
+
+Yikes. It appears that at best, we're missing 2 games when we just filter on each "GEND" value during the regular season. I think that instead of digging through and finding which games are missing a "GEND" value, it's probably better to just identify the end of a game manually. Here's my plan for each type of game ending:
+
+1. **Regulation Ending:** event_type == "PEND", game_period == 3, and home_score != away_score
+2. **OT Ending:** event_type == "GOAL", game_period == 4
+3. **Shootout Ending:** event_type == "SOC", game_period == 5
+
+The issue with some of the games in this PBP file is that this methodology isn't always 100% correct as the PBP record keeping is a little.....Messy. The most frequent issue that I found is that not all of the lines that meet the criteria above actually have the home_score and away_score values updated with the final score, so I needed a way to update the final scores based on the results. I came up with 3 functions to help me:
+
+```{r game endings, message=FALSE}
+
+fun.OT_winners <- function(data_set, gameID) {
+  #DESCRIPTION - finds the max home score and the max away score in an OT period. Sometimes necessary as the score state data from the raw PBP does not always behave as expected
+  #ARGUMENTS - data_set = a raw PBP file, gameID = a specified game_id
+  
+  home_score <- max(filter(data_set, game_id == as.integer(gameID))$home_score)
+  away_score <- max(filter(data_set, game_id == as.integer(gameID))$away_score)
+  
+  return(c(home_score, away_score))
+}
+
+fun.shootout_winners <- function(data_set, gameID) {
+  #DESCRIPTION - totals the number of goals by the home team and total by the away team to find the game winner
+  #ARGUMENTS - data_set = a raw PBP file, gameID = a specified game_id
+  
+  home_goals <- nrow(filter(data_set, game_id == as.integer(gameID) & event_type == "GOAL" & event_team == as.character(home_team)))
+  away_goals <- nrow(filter(data_set, game_id == as.integer(gameID) & event_type == "GOAL" & event_team == as.character(away_team)))
+  
+  return(ifelse(home_goals > away_goals, "home", "away"))
+}
+
+fun.game_endings <- function(data_set) {
+  #DESCRIPTION - Identifies the final ending of each game in a data set
+  #ARGUMENTS - data_set = a raw PBP data frame, regular season only
+  
+  #Attempt to grab the final score of each game based on the period that it ends in
+  game_endings <- 
+    data_set %>%
+    filter((data_set$event_type == "PEND" & data_set$game_period == 3 & data_set$home_score != data_set$away_score) | 
+             (data_set$event_type == "GOAL" & data_set$game_period == 4) |
+             (data_set$event_type == "SOC" & data_set$game_period == 5 ))
+  
+  #Identifies if a game ended in OT or a shootout and calculates the final scores
+  for (i in 1:nrow(game_endings)) {
+    if (game_endings[i, "game_period"] == 5) { 
+      so_result <- fun.shootout_winners(data_set, game_endings[i, "game_id"])
+      
+      ifelse(so_result == "home", 
+             game_endings[i, "home_score"] <- game_endings[i, "home_score"] + 1, 
+             game_endings[i, "away_score"] <- game_endings[i, "away_score"] + 1)
+      
+    } else if (game_endings[i, "game_period"] == 4 & (game_endings[i, "home_score"] == game_endings[i, "away_score"])) {
+      ot_result <- fun.OT_winners(data_set, game_endings[i, "game_id"])
+      game_endings[i, "home_score"] <- ot_result[[1]]
+      game_endings[i, "away_score"] <- ot_result[[2]]
+    }
+  }
+  return(game_endings)
+}
+
+```
+
+fun.game_endings filters my data set according to the criteria I laid out above, loops through each game individually, identifies how the game ended, and then manually calculates the score if needed using the fun.OT_winners or fun.shootout_winners functions as needed. The resulting data set looks like this: 
+
+```{r game results, message= FALSE}
+
+results_20172018 <- fun.game_endings(raw_20172018)
+
+head(results_20172018, n = 10)
+
+```
+
+This looks great. We should now have the games results for each game, complete with the right final scores. Time to move onto step 2
+
+##Step 2: Summarize Results by team
+
+The output created above does a good job of discerning game results, but a poor job of giving us any tangible information about team results. In this step I hope to solve that problem. The first step is to grab just the columns that we need and add some columns to fill with data that we might need:
+
+```{r results summary, message=FALSE}
+
+  #Select only columns needed and add columns for the number of points earned by each team, game totals, point totals, etc
+  game_results <- 
+    results_20172018 %>% 
+    arrange(game_date) %>% 
+    select(season, session, game_date, game_id, game_period, home_team, away_team, home_score, away_score) %>%
+    mutate(
+      home_points = ifelse(home_score > away_score, 2, ifelse(game_period == 3, 0, 1)),
+      away_points = ifelse(away_score > home_score, 2, ifelse(game_period == 3, 0, 1)),
+      home_game_num = NA,
+      home_point_total = NA,
+      away_game_num = NA,
+      away_point_total = NA)
+
+```
+
+The above code does the following: 
+1. Arranges game from earliest to lastest in the season based on date
+2. Selects only the columns that we will need in the future and removes all others
+3. Adds columns for points earned by the home team and points earned by the away team
+4. Creates dummy columns for the number of games played by each team and for the total number of points through the current game
+
+To populate the columns created in step 4 I'll use 2 functions: 
+
+``` {r game_count and point_totals functions, message = FALSE}
+
+fun.game_count <- function(data_set, gdate, team) {
+  #DESCRIPTION - Grabs the cumulative game count for a given team
+  #ARGUMENTS - data_set = a list of game results created by fun.game_endings, gdate = a given date, team = a given team
+  
+  #Uses sum to build an array of games up to a given data that includes a set team
+  game_count <- 
+    sum(data_set$game_date <= gdate & 
+          (data_set$home_team == team | data_set$away_team == team))
+  
+  return(game_count)
+}
+
+fun.point_total <- function(data_set, gdate, team) {
+  #DESCRIPTION - Calculates a team's total points earned through a given date
+  #ARGUMENTS - data_set = a list of game results created by fun.game_endings, gdate = a given date, team = a given team
+  
+  point_count <- 
+    sum((data_set$game_date <= gdate) * 
+          (((data_set$home_team == team) * (data_set$home_points)) + 
+             ((data_set$away_team == team) * (data_set$away_points))))
+  
+  return(point_count) 
+}
+```
+
+Each function above is set to take a game date, filter on all games played on or before that date, and sums the points or game count for the given team. I've combined these functions with the code above that summarizes each game to create the below function: 
+
+```{r game_result_summary function, message=FALSE}
+fun.game_result_summary <- function(end_games) {
+  #DESCRIPTION - take raw PbP data and summarize each game by score, games played, points earned, and cumulative points
+  #ARGUMENTS - expects raw PbP data frame
+  
+  #Select only columns needed and add columns for the number of points earned by each team, game totals, point totals, etc
+  game_results <- 
+    end_games %>% 
+    arrange(game_date) %>% 
+    select(season, session, game_date, game_id, game_period, home_team, away_team, home_score, away_score) %>%
+    mutate(
+      home_points = ifelse(home_score > away_score, 2, ifelse(game_period == 3, 0, 1)),
+      away_points = ifelse(away_score > home_score, 2, ifelse(game_period == 3, 0, 1)),
+      home_game_num = NA,
+      home_point_total = NA,
+      away_game_num = NA,
+      away_point_total = NA)
+  
+  
+  #Removes any dublicate lines that may show up, most frequently in games that have two different game ending times for some reason
+  game_results <- unique(game_results)
+  
+  #Loop through each line to apply game and point count functions
+  for (i in 1:nrow(game_results)) {
+    game_results[i, "home_game_num"] <- 
+      fun.game_count(data_set = game_results, 
+                     gdate = game_results[i, "game_date"], 
+                     team = as.character(game_results[i, "home_team"]))
+    
+    game_results[i, "home_point_total"] <- 
+      fun.point_total(data_set = game_results, 
+                     gdate = game_results[i, "game_date"], 
+                     team = as.character(game_results[i, "home_team"])) 
+    
+    game_results[i, "away_game_num"] <- 
+      fun.game_count(data_set = game_results, 
+                     gdate = game_results[i, "game_date"], 
+                     team = as.character(game_results[i, "away_team"]))
+    
+    game_results[i, "away_point_total"] <- 
+      fun.point_total(data_set = game_results, 
+                     gdate = game_results[i, "game_date"], 
+                     team = as.character(game_results[i, "away_team"])) 
+  }
+  
+  return(game_results)
+}
+
+```
+
+We can then go ahead and summarize each of these games with our new data points
+
+```{r game results summary, message=FALSE, warning=FALSE}
+
+gamesummary_20172018 <- fun.game_result_summary(results_20172018)
+
+head(gamesummary_20172018, n = 10)
+
+```
+
+This looks great, however since this analysis is ultimately about individual team performance I think this data may be better suited being summarized with only one team per line. In it's current form there will be a lot of identifying which team is the home team in a given scenario and which is the away team. I came up with the following function to help me clean this up even further: 
+
+```{r team summary function}
+
+fun.results_by_team <- function(game_results) {
+  #DESCRIPTION - Takes a summary file generated by fun.game_result_summary and summarizes for each team
+  #ARGUMENTS - game_results expects a dataframe output by fun.game_result_summary
+  
+  home_list <- 
+    rename(game_results, 
+           team = home_team,
+           opp = away_team,
+           team_score = home_score,
+           opp_score = away_score,
+           team_points = home_points,
+           opp_points = away_points,
+           team_game = home_game_num,
+           opp_game = away_game_num,
+           team_point_total = home_point_total,
+           opp_point_total = away_point_total) %>% 
+    mutate(side = "home",
+           result = ifelse(team_score > opp_score, "W", ifelse(game_period == 3, "L", "OTL")))
+  
+  away_list <- 
+    rename(game_results, 
+           team = away_team,
+           opp = home_team,
+           team_score = away_score,
+           opp_score = home_score,
+           team_points = away_points,
+           opp_points = home_points,
+           team_game = away_game_num,
+           opp_game = home_game_num,
+           team_point_total = away_point_total,
+           opp_point_total = home_point_total) %>% 
+    mutate(side = "away",
+           result = ifelse(team_score > opp_score, "W", ifelse(game_period == 3, "L", "OTL")))
+  
+  team_list <- rbind(home_list, away_list)
+  
+  return(team_list)
+}
+
+```
+
+The above function creates 2 different data sets. One for all home teams, with the away team listed in the "opp" column, and then all of the relevant columns renamed to reflect that change. The second data set is the same methodology for the away teams. Finally, the two sets are joined together to yield the following: 
+
+```{r team summary, message=FALSE, warning=FALSE}
+
+teamsummary_20172018 <- fun.results_by_team(gamesummary_20172018)
+
+head(teamsummary_20172018, n = 10)
+
+```
