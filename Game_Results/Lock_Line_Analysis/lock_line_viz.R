@@ -19,14 +19,15 @@ df.line_labels <-
   df.team_summaries %>% 
   group_by(team) %>%
   summarise(points = max(team_point_total),
-            games = max(team_game))
+            games = max(team_game)) %>%
+            mutate(label = paste(team, points, sep = ", "))
 
 viz.season_compare <- 
   ggplot() +
   ggtitle("Lock Line and Point of No Return") +
   theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
   labs(x = "Game Number", y = "Total Points", color = "Team") +
-  geom_line(data = df.lock_line, na.rm = TRUE, mapping = aes(x = team_game, y = lock_line), color = "blue", linetype = "longdash") +
-  geom_line(data = df.lock_line, na.rm = TRUE, mapping = aes(x = team_game, y = no_return), color = "red", linetype = "longdash") +
+  geom_line(data = df.lock_line, na.rm = TRUE, mapping = aes(x = team_game, y = lock_line), color = "blue", linetype = "longdash", alpha = .3) +
+  geom_line(data = df.lock_line, na.rm = TRUE, mapping = aes(x = team_game, y = no_return), color = "red", linetype = "longdash", alpha = .3) +
   geom_line(data = df.team_summaries, mapping = aes(x = team_game, y = team_point_total, color = team)) +
-  geom_text(data = df.line_labels, mapping = aes(x = games, y = points, label = team, color = team), nudge_x = .75)
+  geom_text(data = df.line_labels, mapping = aes(x = games, y = points, label = label, color = team), nudge_x = .75)
