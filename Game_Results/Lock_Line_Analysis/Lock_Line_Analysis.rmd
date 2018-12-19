@@ -19,8 +19,9 @@ I plan to use raw PBP data to create each of these lines, which means that I wil
 
 1. Summarize the raw PBP results into game results
 2. Summarize results by team, identify the number of points earned by each team based on the results as well as add a value to denote what game of the season it is for each team (1 to 82)
-3. Identify which teams made the playoffs and which teams missed the playoffs for each season
-4. Group the data set by game number, find the minimum point total for all playoff teams and the maximum for all non-playoff teams
+3. Repeat for all seasons with available PBP data and combine into one file
+4. Identify which teams made the playoffs and which teams missed the playoffs for each season
+5. Group the data set by game number, find the minimum point total for all playoff teams and the maximum for all non-playoff teams
 
 ##Step 1: Summarize the raw PBP results into game results
 
@@ -47,7 +48,7 @@ nrow(filter(raw_20172018, event_type == "GEND" & session == "R"))
 
 ```
 
-Yikes. It appears that at best, we're missing 2 games when we just filter on each "GEND" value during the regular season. I think that instead of digging through and finding which games are missing a "GEND" value, it's probably better to just identify the end of a game manually. Here's my plan for each type of game ending:
+Yikes. It appears that at best, we're missing 2 games when we just filter on each "GEND" event during the regular season. I think that instead of digging through and finding which games are missing a "GEND" event, it's probably better to just identify the end of a game manually. Here's my plan for each type of game ending:
 
 1. **Regulation Ending:** event_type == "PEND", game_period == 3, and home_score != away_score
 2. **OT Ending:** event_type == "GOAL", game_period == 4
@@ -292,3 +293,293 @@ teamsummary_20172018 <- fun.results_by_team(gamesummary_20172018)
 head(teamsummary_20172018, n = 10)
 
 ```
+
+##Step 3: Repeat for seasons with available PBP data and combine into one file
+
+As I found the hard way, the methodology outlined above works just fine but unfortunately my computer is unable to manage this for all of the seasons from 2007 to present. The easiest solution was to create a loop to load in each season's PBP file individually, summarize the game results, save the results, and then bind all of those files together
+
+```{r run_all_seasons, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+for (i in 2007:2017){
+  
+  PBP_Directory <- paste0("~/Data_Sets/Hockey/Enhanced PbP/pbp_", i, i+1, ".csv")
+  
+  raw_season <- read_csv(PBP_Directory)
+  
+  results_season <- fun.game_endings(raw_season)
+  
+  gamesummary_season <- fun.game_result_summary(results_season)
+  
+  teamsummary_season <- fun.results_by_team(gamesummary_season)
+  
+  outputdir <- paste0("~/Data_Sets/Hockey/Enhanced PbP/test_summaries/summary_", i, i+1, ".csv")
+  
+  write_csv(teamsummary_season, outputdir)
+  
+}
+```
+
+Now I just need to combine the files using an existing function that I wrote for reading in all .csv files in a directory and binding them
+
+```{r function_readfiles}
+readfiles <- function(dir, sep = "|", bind = TRUE) {
+  #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
+  require(readr)
+  require(dplyr)
+  
+  df.read_files <- 
+    list.files(dir, all.files = FALSE, full.names = TRUE) %>% 
+    lapply(read_delim, col_names = TRUE, delim = sep)
+  
+  if (bind == TRUE) {
+    df.read_files <- bind_rows(df.read_files)
+  }
+  
+  return(df.read_files)
+  
+}
+```
+
+Anticipating that they may come in handy later, I've also written in some code that will designate the Conference and Division alignments as well
+
+```{r combine_files, message=FALSE}
+df.alignment_20002011 <- data.frame(row.names = c("PHI", "NYR", "NYI", "PIT", "N.J",
+                                                  "BUF", "BOS", "MTL", "OTT", "TOR",
+                                                  "WSH", "T.B", "FLA", "CAR", "ATL",
+                                                  "DET", "STL", "CHI", "NSH", "CBJ",
+                                                  "VAN", "EDM", "CGY", "COL", "MIN",
+                                                  "DAL", "ARI", "ANA", "S.J", "L.A"),
+                                    
+                                    conference = c("East", "East", "East", "East", "East",
+                                                   "East", "East", "East", "East", "East",
+                                                   "East", "East", "East", "East", "East",
+                                                   "West", "West", "West", "West", "West",
+                                                   "West", "West", "West", "West", "West",
+                                                   "West", "West", "West", "West", "West"),
+                                    
+                                    division = c("Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic",
+                                                 "Northeast", "Northeast", "Northeast", "Northeast", "Northeast",
+                                                 "Southeast", "Southeast", "Southeast", "Southeast", "Southeast",
+                                                 "Central", "Central", "Central", "Central", "Central",
+                                                 "Northwest", "Northwest", "Northwest", "Northwest", "Northwest",
+                                                 "Pacific", "Pacific", "Pacific", "Pacific", "Pacific"))
+
+df.alignment_20112013 <- data.frame(row.names = c("PHI", "NYR", "NYI", "PIT", "N.J",
+                                                  "BUF", "BOS", "MTL", "OTT", "TOR",
+                                                  "WSH", "T.B", "FLA", "CAR", "WPG",
+                                                  "DET", "STL", "CHI", "NSH", "CBJ",
+                                                  "VAN", "EDM", "CGY", "COL", "MIN",
+                                                  "DAL", "ARI", "ANA", "S.J", "L.A"),
+                                    
+                                    conference = c("East", "East", "East", "East", "East",
+                                                   "East", "East", "East", "East", "East",
+                                                   "East", "East", "East", "East", "East",
+                                                   "West", "West", "West", "West", "West",
+                                                   "West", "West", "West", "West", "West",
+                                                   "West", "West", "West", "West", "West"),
+                                    
+                                    division = c("Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic",
+                                                 "Northeast", "Northeast", "Northeast", "Northeast", "Northeast",
+                                                 "Southeast", "Southeast", "Southeast", "Southeast", "Southeast",
+                                                 "Central", "Central", "Central", "Central", "Central",
+                                                 "Northwest", "Northwest", "Northwest", "Northwest", "Northwest",
+                                                 "Pacific", "Pacific", "Pacific", "Pacific", "Pacific"))
+
+df.alignment_present <- data.frame(row.names = c("BUF", "BOS", "MTL", "OTT", "TOR", "T.B", "FLA", "DET",
+                                                 "WSH", "CAR", "PHI", "NYR", "NYI", "PIT", "N.J", "CBJ",
+                                                 "VAN", "EDM", "CGY", "ARI", "ANA", "S.J", "L.A", "VGK",
+                                                 "STL", "CHI", "COL", "MIN", "DAL", "WPG", "NSH"),
+
+                                    conference = c("East", "East", "East", "East", "East", "East", "East", "East",
+                                                   "East", "East", "East", "East", "East", "East", "East", "East",
+                                                   "West", "West", "West", "West", "West", "West", "West", "West",
+                                                   "West", "West", "West", "West", "West", "West", "West"),
+                                   
+                                    division = c("Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic", "Atlantic",
+                                                 "Metro", "Metro", "Metro", "Metro", "Metro", "Metro", "Metro", "Metro",
+                                                 "Pacific", "Pacific", "Pacific", "Pacific", "Pacific", "Pacific", "Pacific", "Pacific",
+                                                 "Central", "Central", "Central", "Central", "Central", "Central", "Central"))
+
+
+all_seasons <- readfiles("~/Data_Sets/Hockey/Enhanced PbP/test_summaries", bind = TRUE, sep = ",")
+
+all_seasons$conference <- NA
+all_seasons$division <- NA
+
+for (i in 1:nrow(all_seasons)) {
+  team = as.character(all_seasons[i, "team"])
+  
+  if (all_seasons[i, "season"] <= 20102011) {
+    all_seasons[i, "conference"] = as.character(df.alignment_20002011[team, "conference"])
+    all_seasons[i, "division"] = as.character(df.alignment_20002011[team, "division"])
+  } else if (all_seasons[i, "season"] <= 20122013) {
+    all_seasons[i, "conference"] = as.character(df.alignment_20112013[team, "conference"])
+    all_seasons[i, "division"] = as.character(df.alignment_20112013[team, "division"])
+  } else {
+    all_seasons[i, "conference"] = as.character(df.alignment_present[team, "conference"])
+    all_seasons[i, "division"] = as.character(df.alignment_present[team, "division"])
+  }
+}
+```
+
+##Step 4: Identify Playoff teams and Non-Playoff Teams
+
+This step should be pretty easy using the resulting dataframe above: 
+
+```{r playoff_teams, message = FALSE, warning = FALSE}
+
+postseason_teams <-
+  all_seasons %>%
+  filter(session == "P") %>%
+  select(season, conference, division, team) %>%
+  unique()
+
+postseason_teams
+```
+
+##Step 5: Group Dataset by game and identify min/min point values for postseason teams and non postseason teams
+
+```{r lock line creation}
+#Grab only regular season
+reg_season <- filter(all_seasons, session == "R")
+
+#Cycle through each row and assign a "Y" or "N" based on if the team made the playoffs or not
+for (i in 1:nrow(reg_season)) {
+  team_name <- as.character(reg_season[i, "team"])
+  season_ID <- as.integer(reg_season[i, "season"])
+  
+  if(team_name %in% filter(postseason_teams, season == season_ID)$team) {
+    reg_season[i, "playoff_team"] <- "Y"
+  } else {
+    reg_season[i, "playoff_team"] <- "N"
+  }
+}
+
+#Filter summaries into playoff and non-playoff teams
+playoff_teams_summary <- filter(reg_season, playoff_team == "Y")
+nonplayoff_teams_summary <- filter(reg_season, playoff_team == "N")
+
+#Grab min/max points for each game of the season for playoff teams
+playoff_table <- 
+  playoff_teams_summary %>% 
+  group_by(team_game) %>% 
+  summarise(min_playoff = min(team_point_total),
+            max_playoff = max(team_point_total))
+
+#Grab min/max points for each game of the season for nonplayoff teams
+nonplayoff_table <- 
+  nonplayoff_teams_summary %>%
+  group_by(team_game) %>%
+  summarise(min_nonplayoff = min(team_point_total),
+            max_nonplayoff = max(team_point_total))
+
+#Join playoff and non-playoff lists
+final_list <- join(playoff_table, nonplayoff_table, by = "team_game")
+
+#Cycle through each row and calculate the lock line and point of no return
+for (i in 1:82) {
+
+  #Lock Line
+  if(final_list[i, "max_nonplayoff"] + 1 <= final_list[i, "team_game"] * 2) {
+    final_list[i, "lock_line"] <- final_list[i, "max_nonplayoff"] + 1
+  } else {
+    final_list[i, "lock_line"] <- NA
+  }
+  
+  #Point of No Return
+  if(final_list[i, "min_playoff"] - 1 <= final_list[i, "team_game"] * 2 & final_list[i, "min_playoff"] - 1 > 0) {
+    final_list[i, "no_return"] <- (final_list[i, "min_playoff"] - 1)
+  } else {
+    final_list[i, "no_return"] <- NA
+  }
+}
+
+#Grab final results
+lock_line_results <- 
+  final_list %>%
+  select(team_game, lock_line, no_return)
+
+lock_line_results
+```
+
+##Bonus: Visualization and Analysis
+
+Let's start by taking a look at the lock line results
+
+```{r lock line viz}
+require(ggplot2)
+
+viz.lockline_ponr <- 
+  ggplot() +
+  ggtitle("Lock Line and Point of No Return") +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
+  labs(x = "Game Number", y = "Total Points", color = "Team") +
+  geom_line(data = lock_line_results, na.rm = TRUE, mapping = aes(x = team_game, y = lock_line), color = "blue", linetype = "longdash", alpha = .3) +
+  geom_line(data = lock_line_results, na.rm = TRUE, mapping = aes(x = team_game, y = no_return), color = "red", linetype = "longdash", alpha = .3) 
+
+viz.lockline_ponr
+```
+
+The first thing that stands out is that neither line starts at zero games. The point of no return doesn't start until game 5, whereas the lock line doesn't start until game 10. Considering that the point of no return is the point where no team has made the playoffs, it would stand to reason that no line exists because at least one team in our set has started out the season 0-4 and still made the playoffs. 
+
+```{r missing point of no return}
+#Identify team that made playoffs after starting 0-4
+reg_season %>%
+  filter(playoff_team == "Y" & team_game == 4 & team_point_total == 0) %>%
+  select(team, season, team_game, team_point_total)
+```
+
+Conversely, a lock line that doesn't start until game 10 must mean that there was at least one team that missed the playoffs after starting the season 9-0
+
+```{r missing lock line}
+#Identify team that made playoffs after starting 9-0
+reg_season %>%
+  filter(playoff_team == "N" & team_game == 9 & team_point_total == 18) %>%
+  select(team, season, team_game, team_point_total)
+
+```
+
+It's quite interesting that based on historical results, a team that starts out 0-4 may still have a chance of making the playoffs, but a team that goes on a 9-0 run to start the season still isn't considered "safe". Let's take a look at how the Ducks turned their season around in 2008-2009 and where it all went wrong for The Habs in 2015-2016
+
+```{r Habs Ducks Season Progression}
+
+team_results <- 
+  reg_season %>%
+  filter((team == "ANA" & season == 20082009) | (team == "MTL" & season == 20152016))
+
+line_labels <- 
+  team_results %>% 
+  group_by(team) %>%
+  summarise(points = max(team_point_total),
+            games = max(team_game)) %>%
+            mutate(label = paste(team, points, sep = ", "))
+
+viz.team_results <- 
+  viz.lockline_ponr +
+  geom_line(data = team_results, mapping = aes(x = team_game, y = team_point_total, color = team)) +
+  geom_text(data = line_labels, mapping = aes(x = games, y = points, label = label, color = team), nudge_x = 1.75, nudge_y = 1)
+```
+
+To be honest the Ducks run to right the ship after starting 0-4 is pretty much what you would expect. While no one wants to start out by dropping 8 possible points, with a few strong win streaks it's possible to get back in the hunt. That appears to be what happened in this case. Let's take a looke at games 5 through 25 of the season
+
+```{r Ducks win streak}
+head(filter(team_results, team == "ANA" & team_game >= 5 & team_game <= 25), n = 21)
+```
+
+The Ducks recovered from a rough start by going 14-4-3 in their next 21 games for a 73.8% points percentage. They also ended the season on a 7-2-1 run to end the season with a total of 91 points which was good enough for second in the Pacific. 
+
+The story isn't nearly as fun for fans of the 2015-16 Habs. After a blistering 9-0 start, Montreal was able to keep up a pretty strong pace through 26 games with a 19-4-2 record for a 80.8% points percentage. Unfortunately a number of very significant injuries (the most significant of which was an MCL sprain to Carey Price that sidelined him for much of the season) were just too much to overcome. Over the next 26 games the team went 5-1-20 and the season was in real jeopardy.
+
+```{r Habs losing streak}
+head(filter(team_results, team == "MTL" & team_game >= 27 & team_game <= 52), n = 26)
+```
+
+The team first crossed the point of no return after their 66th game on March 3rd, 2016 after a 4-2 road loss to Winnipeg. The team would continue to hover around the point of no return for a number of games before ultimately ending the season with a disappointing 82 points, good for 6th in the Atlantic. 
+
+##Next Steps
+
+This has been a great project and is pretty fun to plug in different teams to see how they trended, but as far as using the lock line and point of no return as a model for who could make the playoffs and who is likely out, it leaves something to be desired. There are a number of items that may be able to fix that. 
+
+1. *Expand number of teams included in line:* Instead of just identifying the historically best and worst point totals, there is some room to adjust the lock line and point of no return to identify the top 10% of teams, set number of teams, etc. to better identify who is most likely in or out
+2. *Focus on points out of a playoff spot:* We know that point totals do not occur in a vacuum. Getting into the playoffs also depends on the performance of the teams around you. In order to adjust for that, it would be interesting to re-run this analysis to identify how many points out of the playoffs a team is at any given point of the season
+3. *Player Injuries:* Similar to Carey Price's injury above, it would be interesting to layer in some significant injuries to see whether or not those injuries were significant enough to change a team's overall playoff outlook
