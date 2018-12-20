@@ -2,7 +2,9 @@
 title: "Lock Line Analysis"
 author: "Eric Fastner"
 date: "November 4, 2018"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 During the 2017-2018 season, I came across a set of [articles](https://theathletic.com/222746/2018/01/26/dellow-point-of-no-return-all-star-edition/) by [Tyler Dellow](https://theathletic.com/187165/2017/12/22/dellow-the-point-of-no-return-viva-las-vegas-edition/) that really piqued my interest. It involved analyzing game-by-game results for all teams from the 05-06 season onwards to identify the minimum number of points that any playoff team had achieved during that time frame, as well as the maximum number of points that any non-playoff team had achieved during the same time frame. The result was 2 lines, the lock line and the point of no return. 
@@ -321,11 +323,9 @@ for (i in 2007:2017){
 
 Now I just need to combine the files using an existing function that I wrote for reading in all .csv files in a directory and binding them
 
-```{r function_readfiles}
+```{r function_readfiles, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 readfiles <- function(dir, sep = "|", bind = TRUE) {
   #DESCRIPTION - Load all files in a specified directory into one frame, separator is "|" unless specified
-  require(readr)
-  require(dplyr)
   
   df.read_files <- 
     list.files(dir, all.files = FALSE, full.names = TRUE) %>% 
@@ -338,6 +338,9 @@ readfiles <- function(dir, sep = "|", bind = TRUE) {
   return(df.read_files)
   
 }
+
+all_seasons <- readfiles("~/Data_Sets/Hockey/Enhanced PbP/test_summaries", bind = TRUE, sep = ",")
+write_csv(all_seasons, "~/Data_Sets/Hockey/Enhanced PbP/test_summaries/combined_seasons.csv")
 ```
 
 Anticipating that they may come in handy later, I've also written in some code that will designate the Conference and Division alignments as well
@@ -401,7 +404,7 @@ df.alignment_present <- data.frame(row.names = c("BUF", "BOS", "MTL", "OTT", "TO
                                                  "Central", "Central", "Central", "Central", "Central", "Central", "Central"))
 
 
-all_seasons <- readfiles("~/Data_Sets/Hockey/Enhanced PbP/test_summaries", bind = TRUE, sep = ",")
+all_seasons <- read_csv("~/Data_Sets/Hockey/Enhanced PbP/test_summaries/combined_seasons.csv", col_names = TRUE)
 
 all_seasons$conference <- NA
 all_seasons$division <- NA
