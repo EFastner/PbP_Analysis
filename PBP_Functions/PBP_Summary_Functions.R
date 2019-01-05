@@ -50,7 +50,7 @@ fun.skater_stats <- function(dataset, team_indicator) {
   
   if(team_indicator == "home") {
     output <- 
-      subset(dataset, !player %in% goalie) %>% group_by(player, team) %>% 
+      subset(dataset, !player %in% goalie) %>% group_by(player, team, season, game_id) %>% 
       summarise(
         TOI = sum(event_length)/60,
         G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
@@ -76,7 +76,7 @@ fun.skater_stats <- function(dataset, team_indicator) {
         GA_5v5 = sum(event_type == "GOAL" & is_home == 0 & game_strength_state == "5v5"))
   } else {
     output <- 
-      subset(dataset, !player %in% goalie) %>% group_by(player, team) %>% 
+      subset(dataset, !player %in% goalie) %>% group_by(player, team, season, game_id) %>% 
       summarise(
         TOI = sum(event_length)/60,
         G = sum(event_type == "GOAL" & event_player_1 == as.character(player)),
@@ -128,16 +128,16 @@ fun.skater_summary <- function(dataset) {
                                     home_player_summary4, 
                                     home_player_summary5, 
                                     home_player_summary6) %>% 
-    group_by(player, team) %>%
+    group_by(player, team, season, game_id) %>%
     summarise_all(funs(sum)) %>%
-    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+    mutate("FO_per" = ifelse(FOT == 0, 0, FOW/FOT))
   
   for (i in 1:nrow(summary.home_skaters)) {
     gs_cats <- 
       summary.home_skaters[i,] %>% 
-      select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+      select(player, team, season, game_id, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
     
-    summary.home_skaters[i, "GS"] <- fun.gamescore(gs_cats[,2:14])
+    summary.home_skaters[i, "GS"] <- round(fun.gamescore(gs_cats[,4:16]),3)
   }
   
   summary.away_skaters <- bind_rows(away_player_summary1, 
@@ -146,16 +146,16 @@ fun.skater_summary <- function(dataset) {
                                     away_player_summary4, 
                                     away_player_summary5, 
                                     away_player_summary6) %>% 
-    group_by(player, team) %>%
+    group_by(player, team, season, game_id) %>%
     summarise_all(funs(sum)) %>%
-    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+    mutate("FO_per" = ifelse(FOT == 0, 0, FOW/FOT))
   
   for (i in 1:nrow(summary.away_skaters)) {
     gs_cats <- 
       summary.away_skaters[i,] %>% 
-      select(player, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
+      select(player, team, season, game_id, G, A1, A2, SOG, BLK, PENT, PEND, FOW, FOL, CF_5v5, CA_5v5, GF_5v5, GA_5v5)
     
-    summary.away_skaters[i, "GS"] <- fun.gamescore(gs_cats[,2:14])
+    summary.away_skaters[i, "GS"] <- round(fun.gamescore(gs_cats[,5:17]),3)
   }
   
   return(list(summary.home_skaters, summary.away_skaters))
@@ -167,9 +167,9 @@ fun.combine_skater_stats <- function(dataset) {
   
   output <- dataset %>% 
     bind_rows() %>%
-    group_by(player, team) %>%
+    group_by(player, team, season, game_id) %>%
     summarise_all(funs(sum)) %>%
-    mutate("FO%" = ifelse(FOT == 0, 0, FOW/FOT))
+    mutate("FO_per" = ifelse(FOT == 0, 0, FOW/FOT))
   
   return(output)
 }
