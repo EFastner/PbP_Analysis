@@ -15,11 +15,11 @@ readfiles <- function(dir, sep = "|", bind = TRUE) {
   
 }
 
-fun.corsi_table <- function(rawdata, v.corsi_events = v.corsi_events) {
+fun.corsi_table <- function(rawdata, corsi_events = v.corsi_events) {
   #DESCRIPTION - Modify raw_data to get corsi data frame
   
   #Create Corsi Only Table for Chart Data
-  df.corsi_table <- filter(rawdata, rawdata$event_type %in% names(v.corsi_events)) %>% 
+  df.corsi_table <- filter(rawdata, rawdata$event_type %in% names(corsi_events)) %>% 
     group_by(event_team) %>% 
     mutate(team_corsi = row_number())
   
@@ -112,7 +112,7 @@ fun.skater_summary <- function(dataset) {
   #DESCRIPTION - Utilize fun.skater_stats function to create stats summary for all player in PBP frame
   
   if (!("is_home" %in% colnames(dataset))) {
-    dataset <- ds.enhancedPBP(dataset, v.corsi_events = v.corsi_events)
+    dataset <- ds.enhancedPBP(dataset, corsi_events = v.corsi_events)
   }
   
   #Run Skater_Stats function for all 6 skater slots on PBP file

@@ -59,7 +59,7 @@ ds.save_game_scrape <- function(game_list, output.name, dir.output = '~/Data Set
   
 }
 
-ds.enhancedPBP <- function(rawdata, v.corsi_events = v.corsi_events) {
+ds.enhancedPBP <- function(rawdata, corsi_events = v.corsi_events) {
   #DESCRIPTION - Add various additional columns to scraped PBP data
   #ARGUMENTS - rawdata = a PBP data frame scraped with Manny Perry's dryscrape functions, v.corsi_events = a vector listing corsi events in names
   #DEPENDENCIES - None
@@ -75,7 +75,7 @@ ds.enhancedPBP <- function(rawdata, v.corsi_events = v.corsi_events) {
   rawdata$side_coordsy <- ifelse((rawdata$is_home == 1 & rawdata$coords_x > 0) | (rawdata$is_home == 0 & rawdata$coords_x < 0), -rawdata$coords_y, rawdata$coords_y)
   
   #Add Dummy Column for Corsi
-  rawdata$is_corsi <- ifelse(rawdata$event_type %in% names(v.corsi_events), 1, 0)
+  rawdata$is_corsi <- ifelse(rawdata$event_type %in% names(corsi_events), 1, 0)
   
   return(rawdata)
 }
